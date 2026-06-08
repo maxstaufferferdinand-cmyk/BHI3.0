@@ -1,0 +1,41 @@
+# Python cache
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Secrets / API keys
+.env
+*.key
+*api_key*
+*secret*
+*token*
+
+# Large data files / results
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.jsonl
+*.parquet
+*.feather
+*.pkl
+*.pickle
+
+# Logs / state files
+*.log
+*_log.txt
+*_state.json
+*_failed_batches.jsonl
+*_failed_queries.jsonl
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Ignore non-code text/config/sample folders for this repository
+*.txt
+*.json
+sampling/
