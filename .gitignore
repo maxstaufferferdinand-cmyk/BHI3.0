@@ -55,3 +55,7 @@ surgical_compatibility_model_outputs/
 surgical_edge_strength_analysis/
 surgical_time_normalized_cluster_edges/
 sampling/
+
+# Ablation/output folders
+cluster_edge_strength_ablation_outputs/
+sampling/
