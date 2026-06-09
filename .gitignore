@@ -39,3 +39,11 @@ Thumbs.db
 *.txt
 *.json
 sampling/
+
+# Embedding arrays and generated graph outputs
+*.npy
+surgical_training_graph_outputs/
+
+# Embedding arrays and generated graph outputs
+*.npy
+surgical_training_graph_outputs/
