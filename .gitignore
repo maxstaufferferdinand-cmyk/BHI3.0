@@ -47,3 +47,11 @@ surgical_training_graph_outputs/
 # Embedding arrays and generated graph outputs
 *.npy
 surgical_training_graph_outputs/
+
+# Project output folders - generated locally, not committed
+auc_comparison_outputs/
+cluster_edge_strength_model_outputs/
+surgical_compatibility_model_outputs/
+surgical_edge_strength_analysis/
+surgical_time_normalized_cluster_edges/
+sampling/
