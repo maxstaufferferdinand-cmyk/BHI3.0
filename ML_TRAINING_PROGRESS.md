@@ -40,3 +40,18 @@ This model does not yet claim prospective discovery of new surgical hypotheses. 
    - combined graph + embedding
 3. Optional Graph Neural Network benchmark.
 4. Projection of OpenAlex engineering concepts into surgical solution-cluster space.
+
+## Ablation benchmark
+
+Ablation analysis was performed for the cluster-edge strength model.
+
+Results:
+
+- Combined graph + embedding model: ROC-AUC 0.971, AP 0.959
+- Graph topology only: ROC-AUC 0.973, AP 0.961
+- Embedding only: ROC-AUC 0.691, AP 0.487
+- Degree only: ROC-AUC 0.664, AP 0.465
+- Hub-weight only: ROC-AUC 0.843, AP 0.758
+- No hub-weight features: ROC-AUC 0.958, AP 0.944
+
+Interpretation: graph-topological features were the strongest predictors, while embedding-only features showed moderate independent signal. The no-hub-weight model retained high performance, indicating that the model is not solely driven by high-frequency hub clusters.
