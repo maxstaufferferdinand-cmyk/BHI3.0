@@ -59,3 +59,34 @@ sampling/
 # Ablation/output folders
 cluster_edge_strength_ablation_outputs/
 sampling/
+
+# Local secrets
+.env
+*.env
+api_key*
+*apikey*
+*OPENAI_API_KEY*
+
+# Python cache
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Large embeddings / model data
+*.npy
+*.npz
+*.pkl
+*.joblib
+
+# Large generated outputs
+openalex_engineering_mechanism_embeddings_cached/
+hypothesis_candidate_space_outputs/
+openalex_ml_prediction_distribution_outputs/
+openalex_high_ml_diversified_candidates_outputs/
+openalex_hypothesis_annotation_outputs/
+openalex_llm_hypothesis_full_outputs/
+openalex_llm_hypothesis_test_outputs/
+
+# Optional local plots / temporary outputs
+*_outputs/
+*.log
