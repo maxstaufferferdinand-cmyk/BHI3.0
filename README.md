@@ -1,71 +1,406 @@
 # BHI3.0 / BreakingRules
 
-BHI3.0 is an experimental research pipeline for cross-domain surgical hypothesis generation. The project explores whether large-scale biomedical and engineering literature can be connected in a structured way to identify plausible, non-obvious surgical research hypotheses. The central idea is not to predict clinical outcomes directly, but to reduce the enormous combinatorial search space between surgical problems and external technical mechanisms into a smaller, machine-ranked and human-reviewable set of candidate hypotheses.
+BHI3.0 is a research prototype for graph-based, cross-domain hypothesis generation in surgery. The project connects historical surgical problem–solution patterns with external engineering mechanisms derived from OpenAlex in order to generate mechanistic, testable surgical research hypotheses.
 
-The project was developed around a surgical concept graph and an external engineering mechanism space. On the surgical side, historical surgical literature was processed into problem–solution structures. These structures were then represented as a graph of surgical problem clusters and surgical solution clusters. The graph captures which types of surgical problems have historically been connected to which types of technical or procedural solutions. On the engineering side, OpenAlex-derived engineering mechanisms were extracted, normalized, embedded, and projected into the surgical solution space. This allows external mechanisms to be linked to surgical problem regions through historically learned surgical solution patterns.
+The core idea is to reduce the very large combinatorial search space between surgical problems and technical concepts into a smaller, machine-ranked, diversified, and human-reviewable candidate set. The system does not predict clinical outcomes and does not claim that generated hypotheses are clinically valid. It is a literature-based discovery and prioritization pipeline intended for expert review.
 
-The repository contains the code used for the OpenAlex engineering mechanism embedding, surgical–engineering projection, candidate-space estimation, machine-learning-based candidate filtering, diversification, annotation, and LLM-based hypothesis formulation. The PubMed mining and original large-scale surgical literature extraction are not included in this repository. The current repository therefore starts from already prepared surgical graph artifacts and OpenAlex mechanism files. These input artifacts are expected to exist locally and are intentionally not committed to GitHub because they are large generated research data files.
+## Project status
 
-The working directory assumed by most scripts is:
+This repository contains the current OpenAlex-to-surgery hypothesis generation pipeline. It includes code for embedding engineering mechanisms, estimating candidate-space size, scoring candidates with a trained surgical graph model, selecting a diversified high-confidence candidate pool, annotating candidates with readable cluster labels, and formulating hypotheses with an LLM.
 
-`C:\Users\Max Stauffer\BreakingRules`
+The repository does not contain the original PubMed mining code or the full raw literature-mining datasets. It assumes that surgical graph artifacts and OpenAlex mechanism files have already been generated locally.
 
-Some paths are currently hard-coded for local development. Before using the pipeline on another machine, the base path in the scripts should be adjusted.
+Current processed candidate counts from the latest run:
 
-The broader methodological logic is as follows. First, a surgical training graph was built from previously extracted surgical problem–solution concepts. Exact surgical problem and solution phrases were clustered into semantic problem and solution clusters. Historical problem–solution cluster edges were then used to train an edge-strength classifier. This model was trained to distinguish historically strong surgical problem–solution edges, especially upper-quintile edges, from weaker historical graph relationships. In prior internal validation, graph-topological features were particularly important, while embedding-only performance was weaker. This supports the interpretation that the pipeline is mainly learning historically successful structural graph patterns, not simply semantic similarity.
+* Naive surgical problem cluster × OpenAlex concept space: approximately 575.6 million pairs
+* Framework-supported candidate space after OpenAlex-to-surgical-solution projection: 101,490,595 pairs
+* Candidates with ML probability ≥ 0.99: 11,574,071 pairs
+* Final diversified candidate pool: 29,500 pairs
+* Final pool coverage: 20,495 OpenAlex concepts, 767 surgical problem clusters, and 662 mapped surgical solution clusters
 
-The external engineering side was built from OpenAlex mechanism concepts. The file `openalex_engineering_mechanisms_full_fast.csv` contains OpenAlex work identifiers and two extracted mechanism columns, `mechanism_1` and `mechanism_2`. These mechanisms were normalized, deduplicated, filtered for obvious placeholders, embedded with OpenAI embeddings, and stored in a cached embedding directory. The cached embedding script writes progress continuously so that long runs can be resumed after interruption or system failure.
+## Repository scope
 
-After embedding the OpenAlex mechanisms, the pipeline maps them to surgical solution clusters. This projection is not used as the final hypothesis score. It is only used to connect an external engineering mechanism to the surgical solution-cluster space. Once a mechanism is mapped to one or more surgical solution clusters, the historical surgical graph is used to identify surgical problem clusters connected to those solution clusters. This creates candidate pairs of the form:
+This repository is intended to store reproducible pipeline code and lightweight documentation. Large intermediate files, embeddings, model binaries, raw LLM outputs, and generated data tables are intentionally excluded from GitHub.
 
-OpenAlex engineering mechanism + surgical problem cluster
+Included:
 
-The first candidate-space estimate showed that the naive Cartesian space between surgical problem clusters and all OpenAlex mechanisms would contain approximately 575.6 million possible pairs. Using the graph-based projection framework reduced this to approximately 101.5 million framework-supported candidate pairs. This was still far too large for direct LLM use, but it was a meaningful reduction of the combinatorial search space.
+* OpenAlex mechanism embedding code
+* Candidate-space estimation code
+* Surgical edge-feature reconstruction code
+* ML probability distribution analysis
+* High-ML candidate diversification
+* Candidate annotation scripts
+* LLM test and full-run scripts
+* Plotting scripts for concept-space visualization
+* README and project documentation
 
-The next step was strict ML-based filtering. Each candidate inherited the prediction of the underlying mapped surgical problem-cluster to solution-cluster edge. The score was deliberately defined as ML prediction only. OpenAlex-to-surgical similarity was not included in the score. Similarity was used only for the projection step, not for ranking. This was an important methodological decision because the aim was to prioritize candidates by historically learned surgical graph strength rather than by semantic closeness alone.
+Not included:
 
-The ML probability distribution showed a highly top-heavy score structure. Out of 101,490,595 framework-supported candidates, approximately 11.57 million had a predicted probability of at least 0.99 of resembling a historical upper-quintile surgical edge. This indicated that probability thresholding alone was not enough. Therefore, a diversification funnel was applied. The final selection strategy used `p >= 0.99` as a hard ML filter, then kept the top 5 candidates per OpenAlex concept, the top 50 candidates per surgical problem cluster, and the top 500 candidates per mapped surgical solution cluster. This produced a final diversified candidate pool of 29,500 candidates. The final pool contained 20,495 unique OpenAlex concepts, 767 surgical problem clusters, and 662 mapped surgical solution clusters.
+* Original PubMed mining pipeline
+* Full raw PubMed abstract datasets
+* Full OpenAlex raw datasets
+* Large `.npy` embedding matrices
+* Trained `.joblib` model files
+* Large generated CSV outputs
+* API keys or local secrets
 
-The final 29,500 candidates were then annotated with readable problem-cluster labels, solution-cluster labels, representative terms, historical edge metadata, and LLM-ready input fields. From this annotated pool, smaller review files were created, including a Top 1,000 file for manual inspection and a Top 10,000 file for larger downstream LLM runs. A test run of 50 random candidates was created first to inspect the style and usefulness of the generated hypotheses before scaling to the full 29,500-candidate run.
+## Method overview
 
-The LLM step formulates one cautious, mechanistic, testable hypothesis per candidate. The prompt explicitly instructs the model not to claim clinical efficacy, not to invent trial results, not to invent animal data, and not to present the output as proven. The intended output is a concise hypothesis title, a 1–2 sentence hypothesis text, a mechanistic rationale, a possible testing route, and a risk or caveat. The LLM output is meant for expert review and prioritization, not as validated scientific evidence.
+The pipeline starts from a previously generated surgical concept graph. Surgical literature was represented as problem–solution structures. Similar surgical problems and solutions were clustered into problem clusters and solution clusters. Historical problem–solution cluster edges were then used to train a classifier that distinguishes strong historical surgical graph relationships from weaker ones.
 
-The most important scripts in the repository are described below in prose rather than as a formal pipeline table.
+OpenAlex engineering mechanisms are processed separately. Extracted mechanism strings are normalized, deduplicated, embedded, and projected into the surgical solution-cluster space. This projection is used only to connect external engineering mechanisms to potentially relevant historical surgical solution regions.
 
-`embed_openalex_engineering_mechanisms_cached.py` embeds the deduplicated OpenAlex engineering mechanism concepts. It reads the OpenAlex mechanism CSV, extracts unique valid mechanism strings, removes placeholders and missing outputs, and writes an embedding index, a NumPy embedding matrix, a progress file, removed-term logs, and a summary JSON. The key feature of this version is caching: embeddings are written continuously to disk so that progress is not lost after a crash.
+A candidate hypothesis is then defined as:
 
-`estimate_openalex_hypothesis_candidate_space.py` estimates the size of the OpenAlex-to-surgery candidate universe. It loads the surgical solution-cluster embeddings, the OpenAlex mechanism embeddings, and the historical surgical problem–solution cluster graph. It maps each OpenAlex concept to its top surgical solution clusters and counts how many surgical problem clusters become reachable through those mappings. This script produced the main candidate-space reduction from the naive Cartesian space to the framework-supported candidate set.
+`OpenAlex engineering mechanism + surgical problem cluster`
 
-`reconstruct_cluster_edge_feature_table_for_ml_scoring.py` reconstructs the historical surgical edge feature table required by the trained edge-strength classifier. This was needed because the model file existed, but the original feature CSV used for scoring was not found in the expected output directory. The script rebuilds features such as centroid cosine, cluster sizes, graph degrees without the current edge, total edge weights without the current edge, exact-edge counts, and density proxy. The reconstructed table is then used for ML scoring.
+The candidate exists if the OpenAlex mechanism maps to a surgical solution cluster that has historical graph links to surgical problem clusters. The ML model then scores the corresponding surgical problem-cluster to solution-cluster relationship. The score used in the current selection funnel is strictly the ML probability that this mapped surgical problem–solution configuration resembles a historical upper-quintile surgical edge.
 
-`score_openalex_ml_prediction_distribution.py` scores the framework-supported candidate space using ML prediction only. It does not include similarity in the score. It calculates the distribution of predicted probabilities and counts how many candidates pass thresholds such as 0.90, 0.95, 0.99, and 0.995. This script showed that roughly 11.57 million candidates had `p >= 0.99`.
+OpenAlex-to-surgical similarity is not used as a ranking score. Similarity is only used for the projection step.
 
-`select_diversified_high_ml_openalex_candidates.py` applies the high-probability and diversification funnel. It starts from the OpenAlex-to-surgical-solution mapping and the historical edge ML predictions, keeps only high-ML candidates with `p >= 0.99`, then applies the top-per-OpenAlex, top-per-problem, and top-per-solution diversification strategy. The result is the final 29,500-candidate pool.
+## Selection funnel
 
-`annotate_diversified_candidates_with_cluster_labels.py` adds human-readable cluster annotations to the final candidate pool. It joins problem-cluster terms, solution-cluster terms, and historical edge metadata to the selected candidates. It also creates LLM-ready context fields and exports the annotated full pool, a Top 1,000 manual review file, and a Top 10,000 LLM file.
+The current selection funnel is:
 
-`llm_formulate_50_random_hypotheses_test.py` performs a small LLM test run on 50 randomly sampled candidates from the Top 1,000 review file. It saves each result immediately, supports resume behavior, and writes both clean CSV output and raw JSONL output. This script is used to inspect whether the hypothesis formulation style is acceptable before running thousands of candidates.
+1. Generate framework-supported candidates through OpenAlex mechanism to surgical solution-cluster projection.
+2. Assign each candidate the ML probability of the corresponding surgical problem-cluster to solution-cluster relationship.
+3. Apply a strict threshold of `ml_probability_top20_like >= 0.99`.
+4. Keep the top 5 candidates per OpenAlex concept.
+5. Keep the top 50 candidates per surgical problem cluster.
+6. Keep the top 500 candidates per mapped surgical solution cluster.
+7. Export the final diversified candidate pool.
 
-`clean_llm_hypotheses_excel_export.py` converts the 50-candidate test output into a clean Excel workbook. It creates a review sheet with manual review columns, a full-output sheet, and a summary sheet. The goal is to make the generated hypotheses easy to inspect in Excel.
+This produces the file:
 
-`llm_formulate_full_hypotheses_in_parts.py` is intended for the full LLM run over all 29,500 annotated candidates. It is designed to be run in parts of 5,000 candidates each. It supports long request timeouts, retry/backoff behavior, resume logic, separate part outputs, and a master output file. The current full-run plan is to process final ranks 1–5,000, 5,001–10,000, 10,001–15,000, 15,001–20,000, 20,001–25,000, and 25,001–29,500 as separate runs.
+`openalex_high_ml_diversified_candidates_outputs/final_diversified_high_ml_openalex_candidates.csv`
 
-Several plotting scripts are also included. These produce UMAP maps, heatmaps, and combined surgical–OpenAlex concept visualizations. These figures are exploratory and mainly used to understand the structure of the embedded spaces. A key methodological point is that mixed UMAP visualizations must be interpreted carefully. UMAP coordinates are useful for visual neighborhood structure but should not be overinterpreted as direct metric distances. For bridge-building, the projection-based approach is more important than visual overlap in a single UMAP.
+The annotated version is generated later as:
 
-The repository intentionally ignores large generated outputs, embeddings, model artifacts, raw LLM outputs, and local secrets. The `.gitignore` excludes files such as `.env`, API-key files, `.npy`, `.npz`, `.pkl`, `.joblib`, cached embedding directories, candidate-output directories, hypothesis-output directories, and other large generated output folders. This is important because the repository is meant to contain reproducible code and lightweight documentation, not large private or generated datasets.
+`openalex_hypothesis_annotation_outputs/final_diversified_high_ml_openalex_candidates_annotated.csv`
 
-To use the LLM scripts, an OpenAI API key must be set locally in the PowerShell session. The key should never be committed to GitHub. A typical local run uses:
+## Main input files
+
+The scripts assume the following local input files exist.
+
+Surgical graph files:
+
+`C:\Users\Max Stauffer\BreakingRules\surgical_time_normalized_cluster_edges\cluster_edges_time_normalized.csv`
+
+`C:\Users\Max Stauffer\BreakingRules\surgical_time_normalized_cluster_edges\problem_node_clusters.csv`
+
+`C:\Users\Max Stauffer\BreakingRules\surgical_time_normalized_cluster_edges\solution_node_clusters.csv`
+
+Surgical embedding files:
+
+`C:\Users\Max Stauffer\BreakingRules\surgical_training_graph_outputs\surgical_problem_embedding_index.csv`
+
+`C:\Users\Max Stauffer\BreakingRules\surgical_training_graph_outputs\surgical_solution_embedding_index.csv`
+
+`C:\Users\Max Stauffer\BreakingRules\surgical_training_graph_outputs\surgical_problem_embeddings.npy`
+
+`C:\Users\Max Stauffer\BreakingRules\surgical_training_graph_outputs\surgical_solution_embeddings.npy`
+
+`C:\Users\Max Stauffer\BreakingRules\surgical_training_graph_outputs\surgical_pair_embeddings.npy`
+
+OpenAlex mechanism file:
+
+`C:\Users\Max Stauffer\BreakingRules\openalex_engineering_mechanisms_full_fast.csv`
+
+The OpenAlex mechanism file is expected to contain at least:
+
+* `openalex_id`
+* `mechanism_1`
+* `mechanism_2`
+
+The repository currently uses hard-coded local paths. For use on another machine, update `BASE_DIR` in the scripts.
+
+## Main scripts
+
+### `embed_openalex_engineering_mechanisms_cached.py`
+
+Embeds OpenAlex engineering mechanisms. The script extracts unique mechanism strings from `mechanism_1` and `mechanism_2`, removes obvious placeholder terms, and writes a cached embedding matrix.
+
+Main outputs:
+
+`openalex_engineering_mechanism_embeddings_cached/openalex_engineering_mechanism_index.csv`
+
+`openalex_engineering_mechanism_embeddings_cached/openalex_engineering_mechanism_embeddings.npy`
+
+`openalex_engineering_mechanism_embeddings_cached/openalex_engineering_mechanism_progress.csv`
+
+`openalex_engineering_mechanism_embeddings_cached/openalex_engineering_mechanism_summary.json`
+
+The cached version is preferred because it writes progress after each batch and can recover after crashes.
+
+### `estimate_openalex_hypothesis_candidate_space.py`
+
+Estimates the candidate space created by mapping OpenAlex mechanisms to surgical solution clusters and then expanding through historical surgical problem-cluster links.
+
+Main outputs:
+
+`hypothesis_candidate_space_outputs/candidate_space_summary.json`
+
+`hypothesis_candidate_space_outputs/candidate_space_funnel.csv`
+
+`hypothesis_candidate_space_outputs/openalex_concept_candidate_counts.csv`
+
+`hypothesis_candidate_space_outputs/problem_cluster_candidate_counts.csv`
+
+`hypothesis_candidate_space_outputs/openalex_to_surgical_solution_cluster_topk.csv`
+
+The top-k mapping file is later used by the scoring and selection scripts.
+
+### `reconstruct_cluster_edge_feature_table_for_ml_scoring.py`
+
+Reconstructs the feature table needed to score historical surgical problem-cluster to solution-cluster edges with the trained ML model.
+
+The reconstructed features include:
+
+* `centroid_cosine`
+* `problem_cluster_size_log`
+* `solution_cluster_size_log`
+* `problem_degree_without_edge_log`
+* `solution_degree_without_edge_log`
+* `problem_total_weight_without_edge_log`
+* `solution_total_weight_without_edge_log`
+* `problem_total_exact_edges_without_edge_log`
+* `solution_total_exact_edges_without_edge_log`
+* `cluster_edge_density_proxy`
+
+Main output:
+
+`cluster_edge_strength_model_outputs/reconstructed_cluster_edge_feature_table_for_ml_scoring.csv`
+
+### `score_openalex_ml_prediction_distribution.py`
+
+Scores the OpenAlex-mediated candidate space using the trained surgical edge-strength model. The candidate score is the ML prediction only. No OpenAlex-to-surgical similarity term is used in the score.
+
+Main outputs:
+
+`openalex_ml_prediction_distribution_outputs/historical_cluster_edge_ml_predictions.csv`
+
+`openalex_ml_prediction_distribution_outputs/openalex_candidate_ml_prediction_distribution.csv`
+
+`openalex_ml_prediction_distribution_outputs/openalex_candidate_ml_prediction_threshold_counts.csv`
+
+`openalex_ml_prediction_distribution_outputs/top_ml_predicted_openalex_problem_candidates_preview.csv`
+
+`openalex_ml_prediction_distribution_outputs/openalex_candidate_ml_prediction_summary.json`
+
+### `select_diversified_high_ml_openalex_candidates.py`
+
+Applies the final candidate selection funnel. It keeps candidates with `ml_probability_top20_like >= 0.99` and then applies top-k diversification across OpenAlex concepts, surgical problem clusters, and mapped surgical solution clusters.
+
+Main outputs:
+
+`openalex_high_ml_diversified_candidates_outputs/stage1_p99_top5_per_openalex_concept.csv`
+
+`openalex_high_ml_diversified_candidates_outputs/stage2_p99_top50_per_problem_cluster.csv`
+
+`openalex_high_ml_diversified_candidates_outputs/stage3_p99_top500_per_solution_cluster.csv`
+
+`openalex_high_ml_diversified_candidates_outputs/final_diversified_high_ml_openalex_candidates.csv`
+
+`openalex_high_ml_diversified_candidates_outputs/diversified_high_ml_candidate_selection_summary.json`
+
+### `annotate_diversified_candidates_with_cluster_labels.py`
+
+Adds readable cluster labels, representative cluster terms, and historical edge metadata to the selected candidate pool.
+
+Main outputs:
+
+`openalex_hypothesis_annotation_outputs/final_diversified_high_ml_openalex_candidates_annotated.csv`
+
+`openalex_hypothesis_annotation_outputs/top1000_for_manual_review.csv`
+
+`openalex_hypothesis_annotation_outputs/top10000_for_llm.csv`
+
+`openalex_hypothesis_annotation_outputs/candidate_annotation_summary.json`
+
+### `llm_formulate_50_random_hypotheses_test.py`
+
+Runs a small LLM test on 50 randomly sampled candidates from the Top 1,000 manual review file. This is used to inspect hypothesis style before running the full candidate pool.
+
+Main outputs:
+
+`openalex_llm_hypothesis_test_outputs/llm_test_50_random_input_candidates.csv`
+
+`openalex_llm_hypothesis_test_outputs/llm_test_50_random_hypotheses.csv`
+
+`openalex_llm_hypothesis_test_outputs/llm_test_50_random_raw_outputs.jsonl`
+
+`openalex_llm_hypothesis_test_outputs/llm_test_50_random_summary.json`
+
+### `clean_llm_hypotheses_excel_export.py`
+
+Converts the 50-candidate LLM test output into a clean Excel workbook for manual review.
+
+Main output:
+
+`openalex_llm_hypothesis_test_outputs/llm_test_50_random_hypotheses_CLEAN.xlsx`
+
+### `llm_formulate_full_hypotheses_in_parts.py`
+
+Runs the LLM hypothesis formulation over the full annotated candidate pool. The script is designed to run in parts of 5,000 candidates and supports retries, long request timeouts, backoff pauses, part-level outputs, master outputs, and resume logic.
+
+The intended run structure is:
+
+`--start 1 --limit 5000 --part-name part01`
+
+`--start 5001 --limit 5000 --part-name part02`
+
+`--start 10001 --limit 5000 --part-name part03`
+
+`--start 15001 --limit 5000 --part-name part04`
+
+`--start 20001 --limit 5000 --part-name part05`
+
+`--start 25001 --limit 5000 --part-name part06`
+
+Main outputs:
+
+`openalex_llm_hypothesis_full_outputs/full_llm_hypotheses_part01.csv`
+
+`openalex_llm_hypothesis_full_outputs/full_llm_hypotheses_part02.csv`
+
+`openalex_llm_hypothesis_full_outputs/full_llm_hypotheses_MASTER.csv`
+
+`openalex_llm_hypothesis_full_outputs/full_llm_hypotheses_MASTER_raw.jsonl`
+
+## Plotting scripts
+
+The repository also contains scripts for exploratory visualization:
+
+`plot_openalex_umap_heatmap.py`
+
+`plot_openalex_umap_labeled.py`
+
+`plot_openalex_umap_labeled_adjusted.py`
+
+`plot_combined_surgical_openalex_concept_map.py`
+
+`plot_surgical_pair_map_with_projected_openalex.py`
+
+These scripts create UMAP maps, labeled concept maps, heatmaps, and projected OpenAlex-to-surgery visualizations. These figures are useful for understanding the structure of the embedding space, but they should not be interpreted as direct proof of hypothesis quality.
+
+## Installation
+
+The project uses Python 3.14 in the current local setup.
+
+Typical packages include:
+
+`pandas`
+
+`numpy`
+
+`scikit-learn`
+
+`joblib`
+
+`openai`
+
+`openpyxl`
+
+`matplotlib`
+
+`umap-learn`
+
+`adjustText`
+
+Install dependencies as needed:
+
+`python -m pip install pandas numpy scikit-learn joblib openai openpyxl matplotlib umap-learn adjustText`
+
+A formal `requirements.txt` should be added once the environment is finalized.
+
+## API key setup
+
+The LLM and embedding scripts require an OpenAI API key. The key must be set locally and must not be committed to GitHub.
+
+PowerShell example:
 
 `$env:OPENAI_API_KEY="sk-..."`
 
 `$env:OPENAI_LLM_MODEL="gpt-5.5"`
 
-The full LLM run should be started in parts. For example, the first part is run with:
+If a placeholder such as `DEIN_API_KEY_HIER_EINFÜGEN` is used by mistake, the scripts may fail because the placeholder contains non-ASCII characters. Use the real API key only.
+
+## Running the pipeline
+
+The typical local order is:
+
+1. Embed OpenAlex engineering mechanisms.
+2. Estimate the candidate space.
+3. Reconstruct surgical edge features if needed.
+4. Score the candidate probability distribution.
+5. Select diversified high-ML candidates.
+6. Annotate selected candidates.
+7. Run a 50-candidate LLM test.
+8. Review the Excel output.
+9. Run the full LLM pipeline in 5,000-candidate parts.
+
+Example commands:
+
+`python embed_openalex_engineering_mechanisms_cached.py`
+
+`python estimate_openalex_hypothesis_candidate_space.py`
+
+`python reconstruct_cluster_edge_feature_table_for_ml_scoring.py`
+
+`python score_openalex_ml_prediction_distribution.py`
+
+`python select_diversified_high_ml_openalex_candidates.py`
+
+`python annotate_diversified_candidates_with_cluster_labels.py`
+
+`python llm_formulate_50_random_hypotheses_test.py`
+
+`python clean_llm_hypotheses_excel_export.py`
 
 `python llm_formulate_full_hypotheses_in_parts.py --start 1 --limit 5000 --part-name part01`
 
-The following runs continue with starts at 5001, 10001, 15001, 20001, and 25001. If a run is interrupted, it can be restarted with the same command. Previously completed final ranks are skipped.
+## Output policy
 
-This project should be understood as a research prototype. The generated hypotheses are not validated medical recommendations. The ML model identifies candidates that resemble historically strong surgical problem–solution graph patterns. The LLM then converts these structured candidates into readable research hypotheses. Both steps require expert review. Clinical plausibility, safety, feasibility, novelty, and ethical considerations must be assessed separately before any experimental or translational use.
+Large generated files are excluded from version control. This includes embeddings, model files, large candidate outputs, raw LLM outputs, and local cache directories.
 
-AI disclosure: AI assistance was used during development to adapt code, write documentation, structure the pipeline, and formulate prompts. The scientific interpretation, research direction, and final responsibility for use of the outputs remain with the project author.
+The `.gitignore` should exclude:
+
+`*.npy`
+
+`*.npz`
+
+`*.pkl`
+
+`*.joblib`
+
+`.env`
+
+`openalex_engineering_mechanism_embeddings_cached/`
+
+`hypothesis_candidate_space_outputs/`
+
+`openalex_ml_prediction_distribution_outputs/`
+
+`openalex_high_ml_diversified_candidates_outputs/`
+
+`openalex_hypothesis_annotation_outputs/`
+
+`openalex_llm_hypothesis_test_outputs/`
+
+`openalex_llm_hypothesis_full_outputs/`
+
+This keeps the repository focused on code and documentation rather than generated data.
+
+## Scientific interpretation
+
+The generated hypotheses are not clinical recommendations. The pipeline identifies OpenAlex-mediated problem–mechanism candidates that map onto historically strong surgical graph regions. The ML score indicates similarity to historical high-strength surgical problem–solution graph patterns, not clinical truth.
+
+All generated hypotheses require expert review for surgical plausibility, novelty, feasibility, safety, ethics, and translational relevance before any further use.
+
+## AI disclosure
+
+AI assistance was used to adapt code, structure scripts, write documentation, and support prompt development. The outputs of the pipeline and the generated hypotheses require expert scientific review. Responsibility for interpretation and use remains with the project author.
+
+## Citation
+
+Citation will be added once available
